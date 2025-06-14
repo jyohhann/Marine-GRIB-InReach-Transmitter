@@ -3,3 +3,4 @@ credentials*.json
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
 .env
+venv/
