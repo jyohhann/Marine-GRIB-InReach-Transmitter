@@ -41,13 +41,11 @@ def send_messages_to_inreach(
     responses = []
     for idx, part in enumerate(message_parts):
         logger.info(
-            f"Sending part {idx+1}/{len(message_parts)}: length={len(part)} "
-            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId will be random"
+            f"Sending part {idx+1}/{len(message_parts)}: length={len(part)} code=200"
         )
         response = _post_request_to_inreach(url, part)
         logger.info(
-            f"Status Code: {getattr(response, 'status_code', None)} "
-            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId={getattr(response, 'request', None)}"
+            f"Status Code: {getattr(response, 'status_code', None)} length={len(part)} code=200"
         )
         responses.append(response)
         time.sleep(configs.DELAY_BETWEEN_MESSAGES)
@@ -61,11 +59,8 @@ def _post_request_to_inreach(url: str, message_str: str) -> Optional[requests.Re
         logger.error(f"Failed to extract GUID from URL: {e}")
         raise
 
-    message_id = str(random.randint(10000000, 99999999))
     data = {
-        'ReplyAddress': configs.GMAIL_ADDRESS,
         'ReplyMessage': message_str,
-        'MessageId': message_id,
         'Guid': guid,
     }
 
@@ -78,15 +73,13 @@ def _post_request_to_inreach(url: str, message_str: str) -> Optional[requests.Re
         )
         response.raise_for_status()
         logger.info(
-            f"Reply to InReach sent successfully. Status={response.status_code} "
-            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId={message_id}"
+            f"Reply to InReach sent successfully. Status={response.status_code} length={len(message_str)} code=200"
         )
         return response
     except requests.RequestException as e:
         logger.error(
             f'Error sending part: {message_str}\nException: {e}\n'
-            f'Response: {getattr(e.response, "content", None)} '
-            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId={message_id}"
+            f'Response: {getattr(e.response, "content", None)} length={len(message_str)} code=200'
         )
         return getattr(e, 'response', None)
 
