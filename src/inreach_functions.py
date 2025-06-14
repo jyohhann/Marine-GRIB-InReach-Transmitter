@@ -2,79 +2,70 @@ import requests
 import time
 import random
 import logging
-from typing import List, Any
-
-import sys
-sys.path.append(".")
+from typing import List, Optional
 from src import configs
+from src.mistralchat_functions import clean_llm_output, is_valid_for_inreach
 
 logger = logging.getLogger(__name__)
-"""logging.basicConfig(level=logging.INFO)"""
 
-def send_messages_to_inreach(url: str, gribmessage: str) -> List[requests.Response]:
-    """
-    Splits the gribmessage and sends each part to InReach.
+MAX_MESSAGE_LENGTH = 120
 
-    Args:
-        url (str): The target URL for the InReach API.
-        gribmessage (str): The full message string to be split and sent.
-
-    Returns:
-        list: Response objects from the InReach API for each sent message.
-    """
-    message_parts = _split_message(gribmessage)
-    responses = []
-
-    for idx, part in enumerate(message_parts):
-        logger.info(f"Sending part {idx+1}/{len(message_parts)}: length={len(part)}")
-        response = _post_request_to_inreach(url, part)
-        logger.info(f"Status Code: {getattr(response, 'status_code', None)}")
-        responses.append(response)
-        time.sleep(configs.DELAY_BETWEEN_MESSAGES)
-
-    return responses
-
-######## HELPERS ########
-
-def _split_message(gribmessage: str) -> List[str]:
-    """
-    Splits a given grib message into chunks and formats each with its index.
-
-    Args:
-        gribmessage (str): The grib message to split.
-
-    Returns:
-        list: Formatted message chunks.
-    """
-    length = configs.MESSAGE_SPLIT_LENGTH
-    chunks = [gribmessage[i:i + length] for i in range(0, len(gribmessage), length)]
+def split_message_for_inreach(gribmessage: str, max_len: int = MAX_MESSAGE_LENGTH) -> List[str]:
+    """Split and format a message for InReach, with each part up to max_len characters."""
+    chunks = [gribmessage[i:i + max_len] for i in range(0, len(gribmessage), max_len)]
     total = len(chunks)
     return [
-        f"msg {idx + 1}/{total}:\n{chunk}\nend"
+        f"msg {idx + 1}/{total}:\n{chunk}{'\nend' if idx == total - 1 else ''}"
         for idx, chunk in enumerate(chunks)
     ]
 
-def _post_request_to_inreach(url: str, message_str: str) -> requests.Response:
+def send_messages_to_inreach(
+    url: str,
+    gribmessage: str,
+    sanitize_for_mistral: bool = False,
+    max_message_length: Optional[int] = None
+) -> List[Optional[requests.Response]]:
     """
-    Sends a post request with the message to InReach.
-
-    Args:
-        url (str): The InReach endpoint URL.
-        message_str (str): The message to send.
-
-    Returns:
-        Response: The server's response to the request.
+    Split gribmessage and send each part to InReach.
+    If sanitize_for_mistral: clean and validate the message and split to 120 chars.
+    Else: use configs.MESSAGE_SPLIT_LENGTH.
     """
+    max_len = max_message_length or (MAX_MESSAGE_LENGTH if sanitize_for_mistral else configs.MESSAGE_SPLIT_LENGTH)
+    if sanitize_for_mistral:
+        gribmessage = clean_llm_output(gribmessage)
+        if not is_valid_for_inreach(gribmessage):
+            logger.error("Refusing to send message containing internal LLM/system markers!")
+            return []
+    message_parts = split_message_for_inreach(gribmessage, max_len)
+
+    responses = []
+    for idx, part in enumerate(message_parts):
+        logger.info(
+            f"Sending part {idx+1}/{len(message_parts)}: length={len(part)} "
+            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId will be random"
+        )
+        response = _post_request_to_inreach(url, part)
+        logger.info(
+            f"Status Code: {getattr(response, 'status_code', None)} "
+            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId={getattr(response, 'request', None)}"
+        )
+        responses.append(response)
+        time.sleep(configs.DELAY_BETWEEN_MESSAGES)
+    return responses
+
+def _post_request_to_inreach(url: str, message_str: str) -> Optional[requests.Response]:
+    """Send a single message part to InReach."""
     try:
         guid = _extract_guid_from_url(url)
     except Exception as e:
         logger.error(f"Failed to extract GUID from URL: {e}")
         raise
 
+    message_id = str(random.randint(10000000, 99999999))
     data = {
         'ReplyAddress': configs.GMAIL_ADDRESS,
         'ReplyMessage': message_str,
-        'MessageId': str(random.randint(10000000, 99999999)),
+        'MessageId': message_id,
         'Guid': guid,
     }
 
@@ -86,28 +77,24 @@ def _post_request_to_inreach(url: str, message_str: str) -> requests.Response:
             data=data
         )
         response.raise_for_status()
-        logger.info('Reply to InReach sent successfully.')
+        logger.info(
+            f"Reply to InReach sent successfully. Status={response.status_code} "
+            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId={message_id}"
+        )
+        return response
     except requests.RequestException as e:
-        logger.error(f'Error sending part: {message_str}\nException: {e}\nResponse: {getattr(e.response, "content", None)}')
-        return e.response if hasattr(e, 'response') else None
-
-    return response
+        logger.error(
+            f'Error sending part: {message_str}\nException: {e}\n'
+            f'Response: {getattr(e.response, "content", None)} '
+            f"ReplyAddress={configs.GMAIL_ADDRESS} MessageId={message_id}"
+        )
+        return getattr(e, 'response', None)
 
 def _extract_guid_from_url(url: str) -> str:
-    """
-    Extracts the GUID from the InReach URL.
-
-    Args:
-        url (str): The InReach endpoint URL.
-
-    Returns:
-        str: The extracted GUID.
-    """
-    import urllib.parse
-    parsed = urllib.parse.urlparse(url)
-    qs = urllib.parse.parse_qs(parsed.query)
-    guid_list = qs.get('extId')
+    """Extract the GUID (extId) from the InReach URL."""
+    from urllib.parse import urlparse, parse_qs
+    parsed = urlparse(url)
+    guid_list = parse_qs(parsed.query).get('extId')
     if not guid_list:
         raise ValueError("Guid (extId) not found in URL.")
-
     return guid_list[0]

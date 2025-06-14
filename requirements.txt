@@ -1,24 +1,10 @@
-# Google API client libraries
+# Python package requirements for MarineGRIB-InReach-Transmitter
+
 google-api-python-client>=2.0.0
 google-auth>=2.0.0
 google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.1.0
-
-# Requests (for HTTP requests)
 requests>=2.25.0
 requests-oauthlib>=1.3.0
 oauthlib>=3.1.0
-
-# Standard library modules (for reference; no need to install)
-# logging
-# pickle
-# base64
-# zlib
-# email
-# datetime
-# sys
-# os
-# time
-
-# Type hints
-typing-extensions>=4.0.0 # Only if you use new typing features (optional)
+typing-extensions>=4.0.0  # Only if you use new typing features (optional)
