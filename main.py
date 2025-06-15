@@ -1,6 +1,7 @@
 import time
 import sys
 import logging
+from datetime import datetime, timedelta
 
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 sys.path.append(".")
@@ -51,18 +52,18 @@ def handle_grib_message(msg_id: str, msg_text: str, garmin_reply_url: str, auth_
 
 def process_new_message(result, auth_service, processed_ids):
     if result is None:
-        return
+        return False
 
     msg_text, msg_id, garmin_reply_url = result
 
     if not msg_text or not msg_text.strip():
-        return
+        return False
 
     if not email_func.is_inreach_message(msg_id, auth_service):
-        return
+        return False
 
     if msg_id in processed_ids:
-        return
+        return False
 
     if msg_text.strip().lower().startswith("mistral"):
         handle_mistral_message(msg_text, garmin_reply_url)
@@ -71,13 +72,25 @@ def process_new_message(result, auth_service, processed_ids):
 
     processed_ids.add(msg_id)
     email_func.save_processed_message_ids(processed_ids)
+    return True
 
 def poll_messages(auth_service, processed_ids):
+    last_check_time = datetime.now()
+    no_msg_logged = False
     while True:
         logging.info("Checking for new InReach messages...")
+        last_check_time = datetime.now()
+        no_msg_logged = False
         try:
             result = email_func.process_new_inreach_message(auth_service, processed_ids)
-            process_new_message(result, auth_service, processed_ids)
+            found = process_new_message(result, auth_service, processed_ids)
+            if not found:
+                # Wait for 1 minute after "Checking..." before logging "No new messages found."
+                while (datetime.now() - last_check_time).total_seconds() < 60:
+                    time.sleep(1)
+                if not no_msg_logged:
+                    logging.info("No new messages found.")
+                    no_msg_logged = True
         except Exception as exc:
             logging.exception("Error during message processing loop: %s", exc)
         time.sleep(POLL_INTERVAL)
