@@ -72,7 +72,7 @@ def generate_mistral_response_from_inreach_message(inreach_message: str) -> str:
         "Do not include internal tags such as <think>, <system>, or <end>."
     )
     data = {
-        "model": "magistral-small-2506",
+        "model": "mistral-small-2503",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": mistral_prompt}

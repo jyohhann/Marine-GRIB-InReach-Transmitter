@@ -24,15 +24,6 @@ def initialize_services():
     processed_ids = email_func.load_processed_message_ids()
     return auth_service, processed_ids
 
-def handle_mistral_message(msg_text: str, garmin_reply_url: str) -> None:
-    logging.info("InReach: Mistral chat request received.")
-    encoded_reply = mistral_func.generate_mistral_response_from_inreach_message(msg_text)
-    if encoded_reply:
-        inreach_func.send_messages_to_inreach(garmin_reply_url, encoded_reply)
-        logging.info("Sent Mistral response to InReach.")
-    else:
-        logging.warning("Failed to generate or encode Mistral response.")
-
 def handle_grib_message(msg_id: str, msg_text: str, garmin_reply_url: str, auth_service) -> None:
     logging.info("InReach: GRIB file request received.")
     grib_result = email_func.request_and_process_saildocs_grib(msg_id, auth_service)
@@ -50,6 +41,15 @@ def handle_grib_message(msg_id: str, msg_text: str, garmin_reply_url: str, auth_
     else:
         logging.warning("Failed to process GRIB request.")
 
+def handle_mistral_message(msg_text: str, garmin_reply_url: str) -> None:
+    logging.info("InReach: Mistral chat request received.")
+    encoded_reply = mistral_func.generate_mistral_response_from_inreach_message(msg_text)
+    if encoded_reply:
+        inreach_func.send_messages_to_inreach(garmin_reply_url, encoded_reply)
+        logging.info("Sent Mistral response to InReach.")
+    else:
+        logging.warning("Failed to generate or encode Mistral response.")
+        
 def process_new_message(result, auth_service, processed_ids):
     if result is None:
         return False
@@ -67,9 +67,11 @@ def process_new_message(result, auth_service, processed_ids):
 
     if msg_text.strip().lower().startswith("mistral"):
         handle_mistral_message(msg_text, garmin_reply_url)
-    else:
-        handle_grib_message(msg_id, msg_text, garmin_reply_url, auth_service)
+        processed_ids.add(msg_id)
+        email_func.save_processed_message_ids(processed_ids)
+        return True  # Prevents fall-through to GRIB handler
 
+    handle_grib_message(msg_id, msg_text, garmin_reply_url, auth_service)
     processed_ids.add(msg_id)
     email_func.save_processed_message_ids(processed_ids)
     return True
